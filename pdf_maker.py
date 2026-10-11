@@ -21,8 +21,8 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import (HRFlowable, Paragraph, SimpleDocTemplate,
-                                Spacer, Table, TableStyle)
+from reportlab.platypus import (Flowable, HRFlowable, PageBreak, Paragraph,
+                                SimpleDocTemplate, Spacer, Table, TableStyle)
 
 # ---------------------------------------------------------------- themes
 THEMES = {
@@ -133,9 +133,32 @@ def _parse(body, theme):
     return story
 
 
+class _Mark(Flowable):
+    """Invisible marker: records which PDF page a notebook page starts on."""
+
+    def __init__(self, sink):
+        super().__init__()
+        self.sink = sink
+        self.width = self.height = 0
+
+    def wrap(self, avail_w, avail_h):
+        return (0, 0)
+
+    def draw(self):
+        self.sink.append(self.canv.getPageNumber())
+
+
 # ---------------------------------------------------------------- main API
-def make_pdf(title, subject, author, date_text, body, theme="Clean Blue"):
-    """Return PDF bytes for the given notes."""
+def make_pdf(title, subject, author, date_text, body, theme="Clean Blue",
+             return_info=False):
+    """Return PDF bytes for the given notes.
+
+    body can be a string (one page of notes) or a list of strings, where each
+    item is its own page. Every item starts on a new PDF page, so a half-filled
+    page stays half-filled. With return_info=True the result is
+    (pdf_bytes, overflow_pages): the 0-based numbers of notebook pages that
+    had more text than fits on one page.
+    """
     c = THEMES[theme]
     buf = io.BytesIO()
     W, H = A4
@@ -175,6 +198,18 @@ def make_pdf(title, subject, author, date_text, body, theme="Clean Blue"):
     story.append(HRFlowable(width="100%", thickness=1.5,
                             color=colors.HexColor(c["accent"]),
                             spaceBefore=6, spaceAfter=10))
-    story += _parse(body, theme)
+    pages = [body] if isinstance(body, str) else list(body) or [""]
+    starts = []
+    for i, page_text in enumerate(pages):
+        if i:
+            story.append(PageBreak())
+        story.append(_Mark(starts))
+        parsed = _parse(page_text, theme)
+        story += parsed if parsed else [Spacer(1, 1)]
     doc.build(story, onFirstPage=decorate, onLaterPages=decorate)
-    return buf.getvalue()
+    if not return_info:
+        return buf.getvalue()
+    total = doc.page
+    overflow = [i for i, st_ in enumerate(starts)
+                if (starts[i + 1] - 1 if i + 1 < len(starts) else total) > st_]
+    return buf.getvalue(), overflow

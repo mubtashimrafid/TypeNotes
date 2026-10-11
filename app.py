@@ -1,4 +1,4 @@
-"""TypeNotes - type your notes, export a neat PDF, share it.
+"""TypeNotes - type your notes page by page, export a neat PDF, share it.
 
 Run:  streamlit run app.py
 """
@@ -18,35 +18,21 @@ NOTES_DIR.mkdir(exist_ok=True)
 
 st.set_page_config(page_title="TypeNotes", page_icon="📝", layout="wide")
 
-SAMPLE = """# Photosynthesis
-Plants make their own food using **sunlight**, water and carbon dioxide.
-
-## Key points
-- Happens in the *chloroplasts*
-- Chlorophyll absorbs light, mostly red and blue
-- Produces glucose and ==oxygen==
-
-> Exam tip: remember the equation 6CO2 + 6H2O -> C6H12O6 + 6O2
-
----
-
-## Steps
-1. Light energy is absorbed
-2. Water is split
-3. Glucose is built
-"""
-
 
 # ------------------------------------------------------------ storage helpers
 def slug(text):
     return re.sub(r"[^A-Za-z0-9_-]+", "_", text.strip()).strip("_") or "untitled"
 
 
-def save_note(subject, title, author, body, theme):
+def full_text(pages):
+    return "\n\n".join(p for p in pages if p.strip())
+
+
+def save_note(subject, title, author, pages, theme):
     folder = NOTES_DIR / slug(subject or "General")
     folder.mkdir(exist_ok=True)
-    data = dict(subject=subject, title=title, author=author,
-                body=body, theme=theme)
+    data = dict(subject=subject, title=title, author=author, pages=pages,
+                body=full_text(pages), theme=theme)
     (folder / f"{slug(title)}.json").write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -61,13 +47,59 @@ def list_notes():
     return items
 
 
+# ------------------------------------------------------------ page helpers
+def purge_page_widgets():
+    """Forget the text boxes so they reload from the saved pages."""
+    for k in [k for k in st.session_state if k.startswith("pg_")]:
+        del st.session_state[k]
+
+
+def flush():
+    """Copy what is typed in the visible text box into the pages list."""
+    i = st.session_state.get("shown", 0)
+    key = f"pg_{i}"
+    if key in st.session_state and i < len(st.session_state.pages):
+        st.session_state.pages[i] = st.session_state[key]
+
+
+def go_prev():
+    flush()
+    st.session_state.cur_page = max(st.session_state.cur_page - 1, 0)
+
+
+def go_next():
+    flush()
+    last = len(st.session_state.pages) - 1
+    st.session_state.cur_page = min(st.session_state.cur_page + 1, last)
+
+
+def add_page():
+    flush()
+    st.session_state.pages.append("")
+    st.session_state.cur_page = len(st.session_state.pages) - 1
+
+
+def delete_page():
+    flush()
+    pages = st.session_state.pages
+    i = st.session_state.cur_page
+    if len(pages) > 1:
+        pages.pop(i)
+    else:
+        pages[0] = ""
+    purge_page_widgets()
+    st.session_state.cur_page = min(i, len(pages) - 1)
+
+
 def load_into_editor(path):
     d = json.loads(Path(path).read_text(encoding="utf-8"))
     st.session_state.subject = d.get("subject", "")
     st.session_state.title = d.get("title", "")
     st.session_state.author = d.get("author", "")
-    st.session_state.body = d.get("body", "")
     st.session_state.theme = d.get("theme", "Clean Blue")
+    st.session_state.pages = d.get("pages") or [d.get("body", "")]
+    purge_page_widgets()
+    st.session_state.cur_page = 0
 
 
 def ai_cleanup(text):
@@ -86,9 +118,26 @@ def ai_cleanup(text):
     return msg.content[0].text
 
 
+def run_ai_cleanup():
+    flush()
+    i = st.session_state.cur_page
+    st.session_state.ai_msg = None
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        st.session_state.ai_msg = ("info", "Optional feature: set the "
+                                   "ANTHROPIC_API_KEY environment variable to "
+                                   "use it. Everything else works without it.")
+        return
+    try:
+        cleaned = ai_cleanup(st.session_state.pages[i])
+        st.session_state.pages[i] = cleaned
+        st.session_state[f"pg_{i}"] = cleaned
+    except Exception as e:
+        st.session_state.ai_msg = ("error", f"AI tidy-up failed: {e}")
+
+
 # ------------------------------------------------------------ session defaults
-for k, v in dict(subject="", title="", author="", body="",
-                 theme="Clean Blue").items():
+for k, v in dict(subject="", title="", author="", pages=[""], cur_page=0,
+                 shown=0, theme="Clean Blue").items():
     st.session_state.setdefault(k, v)
 
 # ------------------------------------------------------------ sidebar library
@@ -118,13 +167,27 @@ with st.sidebar:
             st.rerun()
     st.divider()
     if st.button("➕ New note", width="stretch"):
-        for k in ("subject", "title", "body"):
+        for k in ("subject", "title"):
             st.session_state[k] = ""
+        st.session_state.pages = [""]
+        st.session_state.cur_page = 0
+        purge_page_widgets()
         st.rerun()
 
 # ------------------------------------------------------------ main page
 st.title("📝 TypeNotes")
-st.caption("Type your notes, turn them into a neat PDF, and share with your classmates.")
+st.caption("Type your notes page by page, turn them into a neat PDF, and share with your classmates.")
+
+pages = st.session_state.pages
+if st.session_state.cur_page >= len(pages):
+    st.session_state.cur_page = len(pages) - 1
+cur = st.session_state.cur_page
+
+
+def page_label(i):
+    n = sum(1 for line in pages[i].splitlines() if line.strip())
+    return f"Page {i + 1}  ·  " + (f"{n} lines" if n else "empty")
+
 
 left, right = st.columns([1, 1], gap="large")
 
@@ -137,7 +200,27 @@ with left:
     note_date = c4.date_input("Date", value=date.today())
     st.selectbox("Theme", list(THEMES), key="theme")
 
-    st.text_area("Your notes", key="body", height=380)
+    # ---- page navigation
+    n1, n2, n3 = st.columns([1, 4, 1])
+    n1.button("◀", on_click=go_prev, disabled=cur == 0, width="stretch",
+              help="Previous page")
+    n2.selectbox("Page", range(len(pages)), format_func=page_label,
+                 key="cur_page", on_change=flush, label_visibility="collapsed")
+    n3.button("▶", on_click=go_next, disabled=cur >= len(pages) - 1,
+              width="stretch", help="Next page")
+    a1, a2 = st.columns(2)
+    a1.button("➕ Add page", on_click=add_page, width="stretch")
+    a2.button("🗑 Delete this page", on_click=delete_page, width="stretch")
+
+    # ---- the notes box for the chosen page
+    st.session_state.shown = cur
+    if f"pg_{cur}" not in st.session_state:
+        st.session_state[f"pg_{cur}"] = pages[cur]
+    st.text_area(f"Notes for page {cur + 1}", key=f"pg_{cur}", height=340,
+                 on_change=flush)
+    st.caption("Each page is its own sheet in the PDF. A page holds about 37 "
+               "lines; longer text continues onto an extra sheet. Leave a page "
+               "unfinished and come back to it later.")
 
     with st.expander("✍️ Formatting cheat sheet"):
         st.markdown(
@@ -148,39 +231,38 @@ with left:
 
     b1, b2 = st.columns(2)
     if b1.button("💾 Save to notebook", width="stretch"):
+        flush()
         if not st.session_state.title.strip():
             st.warning("Please add a note title first.")
         else:
             save_note(st.session_state.subject, st.session_state.title,
-                      st.session_state.author, st.session_state.body,
+                      st.session_state.author, st.session_state.pages,
                       st.session_state.theme)
-            st.success("Saved!")
+            st.toast("Saved to your notebook!", icon="✅")
             st.rerun()
 
-    if b2.button("✨ AI tidy-up (optional)", width="stretch",
-                 help="Fixes spelling and grammar. Needs ANTHROPIC_API_KEY."):
-        if not os.getenv("ANTHROPIC_API_KEY"):
-            st.info("Optional feature: set the ANTHROPIC_API_KEY environment "
-                    "variable to use it. Everything else works without it.")
-        else:
-            try:
-                with st.spinner("Tidying..."):
-                    st.session_state.body = ai_cleanup(st.session_state.body)
-                st.rerun()
-            except Exception as e:
-                st.error(f"AI tidy-up failed: {e}")
+    b2.button("✨ AI tidy-up (optional)", on_click=run_ai_cleanup,
+              width="stretch",
+              help="Fixes spelling and grammar on this page. Needs ANTHROPIC_API_KEY.")
+    msg = st.session_state.get("ai_msg")
+    if msg:
+        getattr(st, msg[0])(msg[1])
 
 with right:
     st.subheader("Preview and share")
-    pdf_bytes = make_pdf(
+    pdf_bytes, overflow = make_pdf(
         st.session_state.title, st.session_state.subject,
         st.session_state.author, note_date.strftime("%d %b %Y"),
-        st.session_state.body, st.session_state.theme)
+        pages, st.session_state.theme, return_info=True)
 
     file_name = f"{slug(st.session_state.title or 'notes')}.pdf"
     st.download_button("⬇️ Download PDF", pdf_bytes, file_name=file_name,
-                       mime="application/pdf", type="primary",
-                       width="stretch")
+                       mime="application/pdf", type="primary", width="stretch")
+
+    if overflow:
+        nums = ", ".join(str(i + 1) for i in overflow)
+        st.warning(f"Page {nums} has more text than fits on one page, so it "
+                   "continues onto an extra sheet in the PDF.")
 
     # Preview: render PDF pages as images (works in every browser)
     try:
@@ -188,17 +270,17 @@ with right:
         pdf_doc = pdfium.PdfDocument(pdf_bytes)
         for i in range(len(pdf_doc)):
             img = pdf_doc[i].render(scale=1.6).to_pil()
-            st.image(img, caption=f"Page {i + 1}", width="stretch")
+            st.image(img, caption=f"Sheet {i + 1}", width="stretch")
     except Exception:
         st.info("Preview unavailable. You can still download the PDF.")
 
     st.markdown("**Share it**")
     st.caption("Download the PDF, then attach it in your chat app. "
                "Or send the plain text straight away:")
-    msg = f"{st.session_state.title}\n\n{st.session_state.body}"
-    wa = "https://wa.me/?text=" + urllib.parse.quote(msg[:3000])
+    text = f"{st.session_state.title}\n\n{full_text(pages)}"
+    wa = "https://wa.me/?text=" + urllib.parse.quote(text[:3000])
     mail = ("mailto:?subject=" + urllib.parse.quote(st.session_state.title or "Notes")
-            + "&body=" + urllib.parse.quote(msg[:1500]))
+            + "&body=" + urllib.parse.quote(text[:1500]))
     s1, s2 = st.columns(2)
     s1.link_button("💬 WhatsApp (text)", wa, width="stretch")
     s2.link_button("✉️ Email (text)", mail, width="stretch")

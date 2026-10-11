@@ -5,15 +5,16 @@ Built for anyone whose handwriting makes sharing notes hard.
 
 ## Features
 - Simple formatting: headings, bullets, numbered lists, bold, italic, highlight, important boxes
+- Page-by-page notebook: leave a page unfinished, write other pages, and come back to finish it later
 - Live PDF preview and one-click download
 - 4 themes: Clean Blue, Warm Orange, Forest Green, Ruled Paper
 - Notebook: save notes by subject, reopen them, search all notes
 - Share as PDF (attach in WhatsApp/Messenger) or send the text via WhatsApp/email
-- Optional AI tidy-up (spelling and grammar) using the Anthropic API //Dont Have any API KEY Right now so you cant use this feature.
+- Optional AI tidy-up (spelling and grammar) using the Anthropic API
 
 ## Run it
 ```
-git clone https://github.com/mubtashimrafid/TypeNotes.git
+git clone https://github.com/YOUR-USERNAME/TypeNotes.git
 cd TypeNotes
 pip install -r requirements.txt
 streamlit run app.py
@@ -49,4 +50,4 @@ Mac/Linux: `export ANTHROPIC_API_KEY=your_key`
 Pull requests are welcome. Fork the repo, make your change, and open a PR.
 
 ## License
-MIT. See [LICENSE].
+MIT. See [LICENSE](LICENSE).
