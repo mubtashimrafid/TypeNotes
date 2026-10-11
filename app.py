@@ -269,7 +269,7 @@ with left:
 
 with right:
     st.subheader("Preview and share")
-    pdf_bytes, overflow = make_pdf(
+    pdf_bytes, overflow, spans = make_pdf(
         st.session_state.title, st.session_state.subject,
         st.session_state.author, note_date.strftime("%d %b %Y"),
         pages, st.session_state.theme, return_info=True)
@@ -283,13 +283,19 @@ with right:
         st.warning(f"Page {nums} has more text than fits on one page, so it "
                    "continues onto an extra sheet in the PDF.")
 
-    # Preview: render PDF pages as images (works in every browser)
+    # Preview: show only the page you are working on (as pictures, so it
+    # works in every browser). The download still contains all pages.
     try:
         import pypdfium2 as pdfium
         pdf_doc = pdfium.PdfDocument(pdf_bytes)
-        for i in range(len(pdf_doc)):
-            img = pdf_doc[i].render(scale=1.6).to_pil()
-            st.image(img, caption=f"Sheet {i + 1}", width="stretch")
+        first, last = spans[cur] if cur < len(spans) else (0, 0)
+        for k, sheet in enumerate(range(first, last + 1)):
+            img = pdf_doc[sheet].render(scale=1.6).to_pil()
+            extra = f" (continues, sheet {k + 1})" if k else ""
+            st.image(img, caption=f"Page {cur + 1} of {len(pages)}{extra}",
+                     width="stretch")
+        st.caption("This preview shows the page you are writing. "
+                   "The PDF you download contains all pages.")
     except Exception:
         st.info("Preview unavailable. You can still download the PDF.")
 

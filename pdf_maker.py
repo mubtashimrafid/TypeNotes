@@ -156,8 +156,9 @@ def make_pdf(title, subject, author, date_text, body, theme="Clean Blue",
     body can be a string (one page of notes) or a list of strings, where each
     item is its own page. Every item starts on a new PDF page, so a half-filled
     page stays half-filled. With return_info=True the result is
-    (pdf_bytes, overflow_pages): the 0-based numbers of notebook pages that
-    had more text than fits on one page.
+    (pdf_bytes, overflow_pages, spans): overflow_pages are the 0-based numbers
+    of notebook pages with more text than fits on one sheet, and spans[i] is
+    (first_sheet, last_sheet), 0-based, of the PDF sheets used by page i.
     """
     c = THEMES[theme]
     buf = io.BytesIO()
@@ -210,6 +211,8 @@ def make_pdf(title, subject, author, date_text, body, theme="Clean Blue",
     if not return_info:
         return buf.getvalue()
     total = doc.page
-    overflow = [i for i, st_ in enumerate(starts)
-                if (starts[i + 1] - 1 if i + 1 < len(starts) else total) > st_]
-    return buf.getvalue(), overflow
+    ends = [(starts[i + 1] - 1 if i + 1 < len(starts) else total)
+            for i in range(len(starts))]
+    overflow = [i for i, st_ in enumerate(starts) if ends[i] > st_]
+    spans = [(st_ - 1, ends[i] - 1) for i, st_ in enumerate(starts)]
+    return buf.getvalue(), overflow, spans
