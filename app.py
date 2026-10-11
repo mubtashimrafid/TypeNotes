@@ -62,21 +62,35 @@ def flush():
         st.session_state.pages[i] = st.session_state[key]
 
 
+def set_page(i):
+    """Jump to page i (0-based) and keep the dropdown in step."""
+    st.session_state.cur_page = i
+    st.session_state.page_pick = i
+
+
+def pick_page():
+    """Called when the user chooses a page in the dropdown."""
+    flush()
+    v = st.session_state.get("page_pick")
+    if isinstance(v, int) and 0 <= v < len(st.session_state.pages):
+        st.session_state.cur_page = v
+
+
 def go_prev():
     flush()
-    st.session_state.cur_page = max(st.session_state.cur_page - 1, 0)
+    set_page(max(int(st.session_state.cur_page) - 1, 0))
 
 
 def go_next():
     flush()
     last = len(st.session_state.pages) - 1
-    st.session_state.cur_page = min(st.session_state.cur_page + 1, last)
+    set_page(min(int(st.session_state.cur_page) + 1, last))
 
 
 def add_page():
     flush()
     st.session_state.pages.append("")
-    st.session_state.cur_page = len(st.session_state.pages) - 1
+    set_page(len(st.session_state.pages) - 1)
 
 
 def delete_page():
@@ -88,7 +102,7 @@ def delete_page():
     else:
         pages[0] = ""
     purge_page_widgets()
-    st.session_state.cur_page = min(i, len(pages) - 1)
+    set_page(min(i, len(pages) - 1))
 
 
 def load_into_editor(path):
@@ -99,7 +113,7 @@ def load_into_editor(path):
     st.session_state.theme = d.get("theme", "Clean Blue")
     st.session_state.pages = d.get("pages") or [d.get("body", "")]
     purge_page_widgets()
-    st.session_state.cur_page = 0
+    set_page(0)
 
 
 def ai_cleanup(text):
@@ -137,7 +151,7 @@ def run_ai_cleanup():
 
 # ------------------------------------------------------------ session defaults
 for k, v in dict(subject="", title="", author="", pages=[""], cur_page=0,
-                 shown=0, theme="Clean Blue").items():
+                 page_pick=0, shown=0, theme="Clean Blue").items():
     st.session_state.setdefault(k, v)
 
 # ------------------------------------------------------------ sidebar library
@@ -171,6 +185,7 @@ with st.sidebar:
             st.session_state[k] = ""
         st.session_state.pages = [""]
         st.session_state.cur_page = 0
+        st.session_state.page_pick = 0
         purge_page_widgets()
         st.rerun()
 
@@ -179,14 +194,15 @@ st.title("📝 TypeNotes")
 st.caption("Type your notes page by page, turn them into a neat PDF, and share with your classmates.")
 
 pages = st.session_state.pages
-if st.session_state.cur_page >= len(pages):
-    st.session_state.cur_page = len(pages) - 1
+if not isinstance(st.session_state.cur_page, int):
+    st.session_state.cur_page = 0
+st.session_state.cur_page = max(0, min(st.session_state.cur_page, len(pages) - 1))
 cur = st.session_state.cur_page
 
 
-def page_label(i):
+def page_status(i):
     n = sum(1 for line in pages[i].splitlines() if line.strip())
-    return f"Page {i + 1}  ·  " + (f"{n} lines" if n else "empty")
+    return f"{i + 1}: " + (f"{n} lines" if n else "empty")
 
 
 left, right = st.columns([1, 1], gap="large")
@@ -204,10 +220,13 @@ with left:
     n1, n2, n3 = st.columns([1, 4, 1])
     n1.button("◀", on_click=go_prev, disabled=cur == 0, width="stretch",
               help="Previous page")
-    n2.selectbox("Page", range(len(pages)), format_func=page_label,
-                 key="cur_page", on_change=flush, label_visibility="collapsed")
+    st.session_state.page_pick = cur
+    n2.selectbox("Page", list(range(len(pages))),
+                 format_func=lambda i: f"Page {i + 1}", key="page_pick",
+                 on_change=pick_page, label_visibility="collapsed")
     n3.button("▶", on_click=go_next, disabled=cur >= len(pages) - 1,
               width="stretch", help="Next page")
+    st.caption("Pages  ·  " + "  ·  ".join(page_status(i) for i in range(len(pages))))
     a1, a2 = st.columns(2)
     a1.button("➕ Add page", on_click=add_page, width="stretch")
     a2.button("🗑 Delete this page", on_click=delete_page, width="stretch")
