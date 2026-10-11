@@ -87,7 +87,7 @@ def ai_cleanup(text):
 
 
 # ------------------------------------------------------------ session defaults
-for k, v in dict(subject="", title="", author="", body=SAMPLE,
+for k, v in dict(subject="", title="", author="", body="",
                  theme="Clean Blue").items():
     st.session_state.setdefault(k, v)
 
