@@ -2,7 +2,6 @@
 
 Run:  streamlit run app.py
 """
-import base64
 import json
 import os
 import re
@@ -112,13 +111,13 @@ with st.sidebar:
             st.markdown(f"**{subj}**")
             current_subject = subj
         c1, c2 = st.columns([5, 1])
-        c1.button(d.get("title", f.stem), key=f"open_{f}", use_container_width=True,
+        c1.button(d.get("title", f.stem), key=f"open_{f}", width="stretch",
                   on_click=load_into_editor, args=(f,))
         if c2.button("🗑", key=f"del_{f}"):
             f.unlink()
             st.rerun()
     st.divider()
-    if st.button("➕ New note", use_container_width=True):
+    if st.button("➕ New note", width="stretch"):
         for k in ("subject", "title", "body"):
             st.session_state[k] = ""
         st.rerun()
@@ -148,7 +147,7 @@ with left:
             "- `**bold**`, `*italic*`, `==highlight==`")
 
     b1, b2 = st.columns(2)
-    if b1.button("💾 Save to notebook", use_container_width=True):
+    if b1.button("💾 Save to notebook", width="stretch"):
         if not st.session_state.title.strip():
             st.warning("Please add a note title first.")
         else:
@@ -158,7 +157,7 @@ with left:
             st.success("Saved!")
             st.rerun()
 
-    if b2.button("✨ AI tidy-up (optional)", use_container_width=True,
+    if b2.button("✨ AI tidy-up (optional)", width="stretch",
                  help="Fixes spelling and grammar. Needs ANTHROPIC_API_KEY."):
         if not os.getenv("ANTHROPIC_API_KEY"):
             st.info("Optional feature: set the ANTHROPIC_API_KEY environment "
@@ -181,13 +180,17 @@ with right:
     file_name = f"{slug(st.session_state.title or 'notes')}.pdf"
     st.download_button("⬇️ Download PDF", pdf_bytes, file_name=file_name,
                        mime="application/pdf", type="primary",
-                       use_container_width=True)
+                       width="stretch")
 
-    b64 = base64.b64encode(pdf_bytes).decode()
-    st.markdown(
-        f'<iframe src="data:application/pdf;base64,{b64}" width="100%" '
-        f'height="560" style="border:1px solid #ddd;border-radius:8px"></iframe>',
-        unsafe_allow_html=True)
+    # Preview: render PDF pages as images (works in every browser)
+    try:
+        import pypdfium2 as pdfium
+        pdf_doc = pdfium.PdfDocument(pdf_bytes)
+        for i in range(len(pdf_doc)):
+            img = pdf_doc[i].render(scale=1.6).to_pil()
+            st.image(img, caption=f"Page {i + 1}", width="stretch")
+    except Exception:
+        st.info("Preview unavailable. You can still download the PDF.")
 
     st.markdown("**Share it**")
     st.caption("Download the PDF, then attach it in your chat app. "
@@ -197,5 +200,5 @@ with right:
     mail = ("mailto:?subject=" + urllib.parse.quote(st.session_state.title or "Notes")
             + "&body=" + urllib.parse.quote(msg[:1500]))
     s1, s2 = st.columns(2)
-    s1.link_button("💬 WhatsApp (text)", wa, use_container_width=True)
-    s2.link_button("✉️ Email (text)", mail, use_container_width=True)
+    s1.link_button("💬 WhatsApp (text)", wa, width="stretch")
+    s2.link_button("✉️ Email (text)", mail, width="stretch")
